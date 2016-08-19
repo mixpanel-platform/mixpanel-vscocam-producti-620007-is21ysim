@@ -1,7 +1,6 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset="utf-8">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/css/reset.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.css">
     <script src="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.js"></script>
@@ -10,41 +9,174 @@
     <div class="mixpanel-platform-section">
       <div id="eventSelect" style="float: left;"></div>
       <div id="by" class="mixpanel-platform-label" style="margin-left: 10px; display: none;">by</div>
-      <div id="propSelect" style="float: left;"></div>
       <div id="dateSelect" style="float: right;"></div>
+      <div style="clear: both;"></div>
+      <div id="propSelect1" style="float: left;"></div>
+      <div id="and" class="mixpanel-platform-label" style="margin-left: 10px; display: none;">and</div>
+      <div id="sliceSelect" style="float: right;"></div>
+      <div style="clear: both;"></div>
+      <div id="propSelect2" style="float: left;"></div>
       <div style="clear: both;"></div>
       <div id="graph"></div>
     </div>
     <div id="table"></div>
     <script>
-      var eventSelect = $('#eventSelect').MPEventSelect();
-      var propSelect  = $('#propSelect').MPPropertySelect();
-      var dateSelect  = $('#dateSelect').MPDatepicker();
-      var eventGraph  = $('#graph').MPChart({chartType: 'line'});
-      var eventTable  = $('#table').MPTable({
-        showPercentages: true,
-        firstColHeader: 'Event'
-      });
+      MP.api.ready(function() {
+        var eventSelect = $('#eventSelect').MPEventSelect();
+        var propSelect1  = $('#propSelect1').MPPropertySelect();
+        var propSelect2  = $('#propSelect2').MPPropertySelect();
+        var dateSelect  = $('#dateSelect').MPDatepicker();
+        var eventGraph  = $('#graph').MPChart({chartType: 'pie'});
+        var eventTable  = $('#table').MPTable({
+          showPercentages: true,
+          firstColHeader: 'Event'
+        });
+        
+        var options = {
+          items: [
+            {label: '-- Select number of slices --', value: 0},
+            {label: '1', value: 1},
+            {label: '2', value: 2},
+            {label: '3', value: 3},
+            {label: '4', value: 4},
+            {label: '5', value: 5},
+            {label: '6', value: 6},
+            {label: '7', value: 7},
+            {label: '8', value: 8},
+            {label: '9', value: 9},
+            {label: '10', value: 10},
+            {label: '11', value: 11},
+            {label: '12', value: 12},
+            {label: '13', value: 13},
+            {label: '14', value: 14},
+            {label: '15', value: 15},
+            {label: '16', value: 16},
+            {label: '17', value: 17},
+            {label: '18', value: 18},
+            {label: '19', value: 19},
+            {label: '20', value: 20}
+          ]
+        };
+        
+        var slicesPicker = $('#sliceSelect').MPSelect(options);
 
-      var runQuery = function() {
-        var eventName = eventSelect.MPEventSelect('value'),
-            propName  = propSelect.MPPropertySelect('value'),
-            dateRange = dateSelect.MPDatepicker('value');
+        var runQuery = function() {
+          var eventName = eventSelect.MPEventSelect('value'),
+              propName1  = propSelect1.MPPropertySelect('value'),
+              propName2  = propSelect2.MPPropertySelect('value'),
+              dateRange = dateSelect.MPDatepicker('value'),
+              slices = slicesPicker.MPSelect('value');
+          
+          var params = {
+            event: eventName,
+            inner: 'properties["'+propName1+'"]',
+            outer: 'properties["'+propName2+'"]',
+            unit: 'day',
+            type: 'general',
+            to: dateRange.to.toISOString().substring(0, 10),
+            from: dateRange.from.toISOString().substring(0, 10)
+          };
 
-        if (eventName) {
-          MP.api.segment(eventName, propName, dateRange).done(function(results) {
-            eventGraph.MPChart('setData', results);
-            eventTable.MPTable('setData', results);
-          });
+          if (eventName && propName1 && propName2 && slices > 0) {
+            MP.api.query('/api/2.0/segmentation/multiseg', params, {dataType: 'json'})
+            .done(function(results) {
+              data = results['data']['values'];
+              processResults(data, slices);
+            });
+          }
+        };
+        
+        var processResults = function(data, slices) {
+          var adjustedResults = {};
+          var totals = {};
+          var other = {};
+          var name = "";
+          var comparator = 0;
+          var keys = Object.keys(data);
+          for(i=0; i<keys.length; i++){
+            var current_keys = Object.keys(data[keys[i]]);
+            totals[keys[i]] = 0;
+            if(i==0){
+              comparator = keys.length * current_keys.length;
+            }
+            for(j=0; j<current_keys.length; j++){
+              name = keys[i] + "++" + current_keys[j];
+              totals[name] = 0;
+              totals[name] = addKeys(data, keys[i], current_keys[j])
+            }
+          }
+          var totals_keys = Object.keys(totals);
+          if(slices < comparator){
+            for(i=0; i<slices; i++){
+              var max_key = _.invert(totals)[_.max(totals)];
+              if(i==0){
+                var otherkeys = Object.keys(data[max_key.split("++")[0]][max_key.split("++")[1]]);
+                for(y=0; y<otherkeys.length; y++){
+                  other[otherkeys[y]] = 0;
+                }
+              }
+              var newname = max_key.split("++")[0] + " / " + max_key.split("++")[1];
+              adjustedResults[newname] = data[max_key.split("++")[0]][max_key.split("++")[1]];
+              if(adjustedResults[newname] === 'undefined'){
+                adjustedResults[newname] = other;
+              }
+              delete totals[max_key];
+              delete data[max_key.split("++")[0]][max_key.split("++")[1]];
+            }
+            var remaining_keys = Object.keys(data);
+            for(i=0; i<remaining_keys.length; i++){
+              var subkeys = Object.keys(data[remaining_keys[i]]);
+              for(j=0; j<subkeys.length; j++){
+                var minikeys = Object.keys(data[remaining_keys[i]][subkeys[j]]);
+                for(k=0; k<minikeys.length; k++) {
+                  other[minikeys[k]] += data[remaining_keys[i]][subkeys[j]][minikeys[k]];
+                }
+              }
+            }
+            adjustedResults['Other'] = other;
+          }
+          // this works perfectly for displaying the multi seg with no other slice
+          else{
+            for(i=0; i<keys.length; i++){
+              var subkeys = Object.keys(data[keys[i]]);
+              for(j=0; j<subkeys.length; j++){
+                var name = keys[i] + " / " + subkeys[j];
+                adjustedResults[name] = data[keys[i]][subkeys[j]];
+              }
+            }
+          }
+          console.log(adjustedResults);
+          eventGraph.MPChart('setData', adjustedResults);
+          eventTable.MPTable('setData', adjustedResults);
         }
-      };
-      eventSelect.on('change', function(e, eventName) {
-        propSelect.MPPropertySelect('setEvent', eventName);
-        $("#by").show();
-        runQuery();
+        
+        var addKeys = function(data, key, current_key) {
+          var subtotal = 0;
+          var subkeys = Object.keys(data[key][current_key]);
+            for(k=0; k < subkeys.length; k++)
+            {
+              subtotal += data[key][current_key][subkeys[k]];
+            }
+          return subtotal;
+        }
+        
+        eventSelect.on('change', function(e, eventName) {
+          propSelect1.MPPropertySelect('setEvent', eventName);
+          $("#by").show();
+          propSelect2.MPPropertySelect('setEvent', eventName);
+          $("#and").show();
+          runQuery();
+        });
+        
+        propSelect1.on('change', runQuery);
+        
+        propSelect2.on('change', runQuery);
+        
+        dateSelect.on('change', runQuery);
+        
+        slicesPicker.on('change', runQuery);
+        
       });
-      propSelect.on('change', runQuery);
-      dateSelect.on('change', runQuery);
     </script>
   </body>
 </html>
